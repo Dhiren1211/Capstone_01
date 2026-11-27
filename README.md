@@ -15,6 +15,13 @@ get matched automatically, and chat to hand it back.
 
 <img src="showcase/mockups/B_panel.png" alt="smartFind home, report form and item detail" width="820">
 
+<br><br>
+
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Dhiren1211/Capstone_01/releases/download/v1.0.0/smartFind-1.0.0.apk)
+[![Download iOS](https://img.shields.io/badge/Download-iOS%20(.ipa)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Dhiren1211/Capstone_01/releases/download/v1.0.0/smartFind-1.0.0-ios-unsigned.ipa)
+
+<sub>The iOS build is unsigned; sign it with your Apple ID (e.g. <a href="https://sideloadly.io">Sideloadly</a>) to install it. · <a href="https://github.com/Dhiren1211/Capstone_01/releases">All releases</a></sub>
+
 </div>
 
 ---
