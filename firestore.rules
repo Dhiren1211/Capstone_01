@@ -1,0 +1,290 @@
+rules_version = '2';
+
+// =============================================================================
+// smartFind — Cloud Firestore security rules
+// =============================================================================
+//
+// Who is who
+//   * "verified"  = signed in with e-mail + password AND the e-mail address has
+//                   been confirmed. Only verified users may read or write
+//                   anything except their own profile document.
+//   * Anonymous sessions have no access at all.
+//
+// Everything that is not explicitly allowed below is denied.
+//
+// OPTIONAL — restrict the whole app to your university:
+//   change campusEmail() below to e.g.
+//     return request.auth.token.email.matches('.*@ks[.]ac[.]kr');
+//   Do this in addition to the ALLOWED_EMAIL_DOMAINS setting of the app (which
+//   is only a convenience check on the phone — rules are the real protection).
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------ helpers
+    function isVerified() {
+      // .get(): tokens of anonymous sessions carry no e-mail claims at all.
+      return request.auth != null
+          && request.auth.token.get('email_verified', false) == true
+          && campusEmail();
+    }
+
+    function campusEmail() {
+      return true; // <- see "OPTIONAL" above
+    }
+
+    function isSelf(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Admin = verified user with a document at /admins/{uid}. The first admin
+    // is created by hand (Firebase console or scripts/make-admin.mjs).
+    function isAdmin() {
+      return isVerified()
+          && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Suspended users (users/{uid}.banned == true) may not post or chat.
+    function notBanned() {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return !exists(p) || get(p).data.get('banned', false) != true;
+    }
+
+    // ------------------------------------------------------------------ users
+    // fcmTokens: push tokens of the phones this person is signed in on (the
+    // alert server reads them; the app keeps at most the 5 newest).
+    function validTokens(d) {
+      return d.fcmTokens is list && d.fcmTokens.size() <= 5;
+    }
+
+    function validUserUpdate() {
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return changed.hasOnly([
+               'displayName', 'avatarUrl', 'postsCount', 'savedItemIds',
+               'fcmTokens'])
+          && (!changed.hasAny(['fcmTokens']) || validTokens(d))
+          && (!changed.hasAny(['displayName'])
+              || (d.displayName is string
+                  && d.displayName.size() >= 2
+                  && d.displayName.size() <= 100))
+          && (!changed.hasAny(['avatarUrl'])
+              || (d.avatarUrl is string
+                  && (d.avatarUrl == ''
+                      || d.avatarUrl.matches('https://res[.]cloudinary[.]com/.*'))))
+          && (!changed.hasAny(['savedItemIds'])
+              || (d.savedItemIds is list && d.savedItemIds.size() <= 500));
+    }
+
+    // A profile holds personal data (e-mail, student number) so it is private:
+    // only its owner can read it. Other people only ever see the display name
+    // that is copied onto items / chats.
+    //
+    // The app creates the profile right after registration, i.e. BEFORE the
+    // e-mail address is verified, so creating (and reading) one's own profile
+    // does not require verification. Changing it later does.
+    match /users/{userId} {
+      allow get: if isSelf(userId) || isAdmin();
+      allow list: if isAdmin();
+
+      allow create: if isSelf(userId) && campusEmail()
+        && request.resource.data.keys().hasOnly([
+             'email', 'displayName', 'avatarUrl', 'studentId',
+             'createdAt', 'postsCount', 'savedItemIds', 'fcmTokens'])
+        && (!('fcmTokens' in request.resource.data)
+            || validTokens(request.resource.data))
+        && (!('displayName' in request.resource.data)
+            || (request.resource.data.displayName is string
+                && request.resource.data.displayName.size() <= 100))
+        && (!('savedItemIds' in request.resource.data)
+            || request.resource.data.savedItemIds is list);
+
+      allow update: if (isVerified() && isSelf(userId) && validUserUpdate())
+        || (isAdmin() && validAdminUserUpdate());
+
+      allow delete: if false;
+    }
+
+    // Admins may only suspend / un-suspend and correct the post counter.
+    function validAdminUserUpdate() {
+      let d = request.resource.data;
+      return d.diff(resource.data).affectedKeys()
+               .hasOnly(['banned', 'bannedReason', 'bannedAt', 'postsCount'])
+          && (!('banned' in d) || d.banned is bool)
+          && (!('bannedReason' in d)
+              || (d.bannedReason is string && d.bannedReason.size() <= 200));
+    }
+
+    // ----------------------------------------------------------------- admins
+    match /admins/{uid} {
+      allow get: if isSelf(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+             'email', 'displayName', 'addedBy', 'addedAt']);
+      // Nobody can remove their own admin role (avoids locking everyone out).
+      allow delete: if isAdmin() && uid != request.auth.uid;
+    }
+
+    // ----------------------------------------------------------------- config
+    // config/buildings: {positions: {"Building name": [lat, lng]}} - admin
+    // corrections of building coordinates, read by every signed-in phone.
+    match /config/buildings {
+      allow read: if isVerified();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['positions', 'updatedBy', 'updatedAt'])
+        && request.resource.data.positions is map
+        && request.resource.data.positions.size() <= 200;
+    }
+
+    // ------------------------------------------------------------------ items
+    function validNewItem(d) {
+      return d.keys().hasOnly([
+               'title', 'description', 'category', 'status', 'location',
+               'latitude', 'longitude', 'reporterId', 'reporterName',
+               'contactInfo', 'imageUrl', 'reunited', 'availabilitySchedule',
+               'pickupLocation', 'meetBuilding', 'preferredContactMethod',
+               'createdAt', 'updatedAt', 'eventDate'])
+          && d.title is string && d.title.size() >= 3 && d.title.size() <= 120
+          && d.description is string && d.description.size() <= 3000
+          && d.category is string && d.category.size() <= 40
+          && d.status in ['lost', 'found']
+          && d.location is string && d.location.size() >= 1 && d.location.size() <= 300
+          && d.latitude is number && d.longitude is number
+          && d.reporterId == request.auth.uid
+          && d.reporterName is string && d.reporterName.size() <= 100
+          && d.contactInfo is string && d.contactInfo.size() <= 200
+          && d.imageUrl is string
+          && (d.imageUrl == '' || d.imageUrl.matches('https://res[.]cloudinary[.]com/.*'))
+          && d.reunited == false
+          && d.availabilitySchedule is string && d.availabilitySchedule.size() <= 400
+          && d.pickupLocation is string && d.pickupLocation.size() <= 400
+          && (!('meetBuilding' in d)
+              || (d.meetBuilding is string && d.meetBuilding.size() <= 200))
+          && d.preferredContactMethod in ['chat', 'email', 'phone']
+          && d.createdAt == request.time
+          && d.updatedAt == request.time
+          && d.eventDate is timestamp
+          && d.eventDate <= request.time + duration.value(1, 'd');
+    }
+
+    match /items/{itemId} {
+      allow read: if isVerified();
+
+      allow create: if isVerified() && notBanned()
+        && validNewItem(request.resource.data);
+
+      // The only change an owner can make to a report is closing it.
+      allow update: if isVerified()
+        && resource.data.reporterId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'reunited', 'updatedAt'])
+        && request.resource.data.status == 'reunited'
+        && request.resource.data.reunited == true
+        && request.resource.data.updatedAt == request.time;
+
+      // Admins verify / un-verify reports.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['verified', 'verifiedBy', 'verifiedAt'])
+        && request.resource.data.verified is bool;
+
+      allow delete: if isVerified()
+        && (resource.data.reporterId == request.auth.uid || isAdmin());
+    }
+
+    // ------------------------------------------------------------------ chats
+    match /chats/{chatId} {
+      // Defined inside this block so that it can see {chatId}.
+      function chatParticipants() {
+        return get(/databases/$(database)/documents/chats/$(chatId)).data.participantIds;
+      }
+
+      // `get` is also used to check whether a chat exists yet, therefore a
+      // missing document (resource == null) must be readable.
+      allow get: if isVerified()
+        && (resource == null || request.auth.uid in resource.data.participantIds);
+
+      // Queries: where('participantIds', arrayContains: <my uid>)
+      allow list: if isVerified()
+        && request.auth.uid in resource.data.participantIds;
+
+      allow create: if isVerified() && notBanned()
+        && request.resource.data.keys().hasOnly([
+             'participantIds', 'participantNames', 'itemId', 'itemTitle',
+             'lastMessage', 'lastMessageAt', 'createdAt', 'unread'])
+        && request.resource.data.participantIds is list
+        && request.resource.data.participantIds.size() == 2
+        && request.auth.uid in request.resource.data.participantIds;
+
+      allow update: if isVerified()
+        && request.auth.uid in resource.data.participantIds
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['lastMessage', 'lastMessageAt', 'unread']);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isVerified()
+          && request.auth.uid in chatParticipants();
+
+        allow create: if isVerified() && notBanned()
+          && request.auth.uid in chatParticipants()
+          && request.resource.data.keys().hasOnly([
+               'chatId', 'senderId', 'senderName', 'text', 'sentAt',
+               'attachmentUrl'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.sentAt == request.time;
+
+        // Messages cannot be edited or deleted.
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------------------------------------------------------- notifications
+    // A match alert is written by the phone of the person who posted the
+    // second report, so a user may create a notification for ANOTHER user, but
+    // only the narrow "match found" kind, and only about a report that they
+    // own themselves (itemId). Message and system alerts can only be written
+    // for oneself; the alert server (service account) bypasses these rules.
+    match /notifications/{notificationId} {
+      allow read: if isVerified()
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if isVerified()
+        && request.resource.data.keys().hasOnly([
+             'userId', 'type', 'title', 'body', 'createdAt', 'isRead',
+             'itemId', 'chatId', 'imageHint', 'itemStatus',
+             'otherItemId', 'score'])
+        && request.resource.data.userId is string
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 600
+        && request.resource.data.isRead == false
+        && request.resource.data.createdAt == request.time
+        && (!('score' in request.resource.data)
+            || (request.resource.data.score is int
+                && request.resource.data.score >= 0
+                && request.resource.data.score <= 100))
+        && (request.resource.data.userId == request.auth.uid
+            || (request.resource.data.type == 'match_found'
+                && request.resource.data.itemId is string
+                && get(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+                     .data.reporterId == request.auth.uid));
+
+      // The owner can only flip the "read" flag.
+      allow update: if isVerified()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['isRead']);
+
+      allow delete: if isVerified()
+        && resource.data.userId == request.auth.uid;
+    }
+  }
+}

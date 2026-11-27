@@ -1,0 +1,14 @@
+{
+  "name": "smartfind-push",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Push notifications and AI matching for smartFind (Cloudflare Worker).",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

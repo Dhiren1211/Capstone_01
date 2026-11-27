@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Surveyed building positions. Generate with: node tool/fetch-osm-buildings.mjs && node tool/apply-osm-buildings.mjs",
+  "positions": {}
+}

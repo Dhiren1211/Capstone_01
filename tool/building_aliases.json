@@ -1,0 +1,4 @@
+{
+  "_help": "Optional. Map a building name from the app to the Korean name used on OpenStreetMap, e.g. \"Hansung Building\": [\"한성관\"]. Entries starting with _ are ignored.",
+  "Hansung Building": []
+}

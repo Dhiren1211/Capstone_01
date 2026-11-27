@@ -1,0 +1,12 @@
+# Cloudflare Worker for smartFind (push notifications + AI matching).
+# Deploy:   cd server && npx wrangler deploy
+# Secrets:  npx wrangler secret put FIREBASE_SERVICE_ACCOUNT   (paste the JSON)
+#           npx wrangler secret put OPENROUTER_API_KEY          (optional)
+name = "smartfind-push"
+main = "worker.mjs"
+compatibility_date = "2025-09-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "your-firebase-project-id"
+# Any OpenRouter model id. "openrouter/free" picks a free model automatically.
+OPENROUTER_MODEL = "openrouter/free"

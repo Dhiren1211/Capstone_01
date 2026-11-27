@@ -1,0 +1,97 @@
+{
+  "_comment": "Shared by test/match_engine_test.dart and server/test/match_engine.test.mjs. Dates are campus-local days (noon).",
+  "cases": [
+    {
+      "name": "same phone, same building, next day (English)",
+      "expectMatch": true,
+      "a": { "id": "a1", "reporterId": "u1", "status": "lost", "category": "electronics",
+             "title": "Black iPhone 13 with blue case",
+             "description": "Lost near the library, small crack on the corner",
+             "location": "Central Library Building", "latitude": 35.138248, "longitude": 129.099623, "date": "2026-03-02" },
+      "b": { "id": "b1", "reporterId": "u2", "status": "found", "category": "electronics",
+             "title": "iPhone found at library",
+             "description": "Black phone with blue silicone case, found on a table",
+             "location": "Central Library Building", "latitude": 35.138248, "longitude": 129.099623, "date": "2026-03-03" }
+    },
+    {
+      "name": "wallet in Korean vs English wording, neighbouring buildings",
+      "expectMatch": true,
+      "a": { "id": "a2", "reporterId": "u1", "status": "lost", "category": "wallets",
+             "title": "검정색 가죽 지갑",
+             "description": "학생증이랑 카드가 들어있어요. 학생회관 근처에서 잃어버렸습니다",
+             "location": "Student Union Building I", "latitude": 35.137710, "longitude": 129.098496, "date": "2026-04-10" },
+      "b": { "id": "b2", "reporterId": "u2", "status": "found", "category": "wallets",
+             "title": "Black leather wallet",
+             "description": "Found a wallet with a student ID card inside and some cards",
+             "location": "Student Union Building II", "latitude": 35.137479, "longitude": 129.097643, "date": "2026-04-10" }
+    },
+    {
+      "name": "same object, wrong category chosen, 3 days apart",
+      "expectMatch": true,
+      "a": { "id": "a3", "reporterId": "u1", "status": "lost", "category": "other",
+             "title": "AirPods Pro white charging case",
+             "description": "white airpods pro in the charging case, has a small scratch",
+             "location": "Engineering Building II", "latitude": 35.142279, "longitude": 129.100195, "date": "2026-05-04" },
+      "b": { "id": "b3", "reporterId": "u2", "status": "found", "category": "electronics",
+             "title": "White earbuds in charging case",
+             "description": "airpods pro found in a classroom, white charging case with a scratch",
+             "location": "Engineering Building II", "latitude": 35.142279, "longitude": 129.100195, "date": "2026-05-07" }
+    },
+    {
+      "name": "different objects, same place and day",
+      "expectMatch": false,
+      "a": { "id": "a4", "reporterId": "u1", "status": "lost", "category": "electronics",
+             "title": "Blue umbrella",
+             "description": "Long blue umbrella with a wooden handle",
+             "location": "Central Library Building", "latitude": 35.138248, "longitude": 129.099623, "date": "2026-06-01" },
+      "b": { "id": "b4", "reporterId": "u2", "status": "found", "category": "electronics",
+             "title": "Silver laptop charger",
+             "description": "65W USB-C charger with a cable",
+             "location": "Central Library Building", "latitude": 35.138248, "longitude": 129.099623, "date": "2026-06-01" }
+    },
+    {
+      "name": "same description but different phone model number",
+      "expectMatch": false,
+      "a": { "id": "a5", "reporterId": "u1", "status": "lost", "category": "electronics",
+             "title": "Samsung Galaxy S23 black",
+             "description": "black phone, no case",
+             "location": "Humanities Building", "latitude": 35.141195, "longitude": 129.100509, "date": "2026-06-10" },
+      "b": { "id": "b5", "reporterId": "u2", "status": "found", "category": "bags",
+             "title": "Red backpack",
+             "description": "red backpack with textbooks inside",
+             "location": "Gymnasium", "latitude": 35.138612, "longitude": 129.100074, "date": "2026-06-20" }
+    },
+    {
+      "name": "good text match but weeks apart and far away",
+      "expectMatch": false,
+      "a": { "id": "a6", "reporterId": "u1", "status": "lost", "category": "keys",
+             "title": "Car key with red keychain",
+             "description": "Hyundai car key and a red keychain",
+             "location": "Front Gate", "latitude": 35.136999, "longitude": 129.097011, "date": "2026-01-05" },
+      "b": { "id": "b6", "reporterId": "u2", "status": "found", "category": "keys",
+             "title": "Key with red keychain",
+             "description": "car key, red keychain",
+             "location": "Tennis Court", "latitude": 35.142279, "longitude": 129.101114, "date": "2026-03-20" }
+    },
+    {
+      "name": "two lost reports never match each other",
+      "expectCandidate": false,
+      "a": { "id": "a7", "reporterId": "u1", "status": "lost", "category": "keys",
+             "title": "Key", "description": "", "location": "Front Gate",
+             "latitude": 35.136999, "longitude": 129.097011, "date": "2026-01-05" },
+      "b": { "id": "b7", "reporterId": "u2", "status": "lost", "category": "keys",
+             "title": "Key", "description": "", "location": "Front Gate",
+             "latitude": 35.136999, "longitude": 129.097011, "date": "2026-01-05" }
+    },
+    {
+      "name": "same person cannot match with themselves",
+      "expectCandidate": false,
+      "a": { "id": "a8", "reporterId": "u1", "status": "lost", "category": "keys",
+             "title": "Key", "description": "", "location": "Front Gate",
+             "latitude": 35.136999, "longitude": 129.097011, "date": "2026-01-05" },
+      "b": { "id": "b8", "reporterId": "u1", "status": "found", "category": "keys",
+             "title": "Key", "description": "", "location": "Front Gate",
+             "latitude": 35.136999, "longitude": 129.097011, "date": "2026-01-05" }
+    }
+  ]
+}

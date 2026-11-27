@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>smartFind</string>
+	<string>smartfind</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -65,6 +65,16 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>smartFind uses your location to tag reports and show items on the campus map.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>smartFind needs access to your photos so you can attach a picture to a report.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>smartFind needs the camera so you can photograph a lost or found item.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
 	</array>
 </dict>
 </plist>

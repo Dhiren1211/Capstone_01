@@ -1,154 +1,126 @@
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
-import 'models/app_state.dart';
-import 'pages/auth_screen.dart';
-import 'pages/chat_list_screen.dart';
-import 'pages/home_screen.dart';
-import 'pages/map_screen.dart';
-import 'pages/profile_screen.dart';
-import 'pages/report_selection_screen.dart';
+import 'app.dart';
+import 'config/app_config.dart';
+import 'firebase_options.dart';
+import 'screens/setup_required_screen.dart';
+import 'services/notification_service.dart';
+import 'state/auth_state.dart';
+import 'state/items_state.dart';
+import 'state/settings_store.dart';
+import 'utils/ksu_buildings.dart';
 
-void main() {
-  runApp(const SmartFindApp());
+/// Entry point.
+///
+/// 1. Lock the orientation to portrait.
+/// 2. Start Firebase (cloud project, or the local emulators in debug builds
+///    when `USE_EMULATOR=true`). If that is not possible, show a clear
+///    "setup required" screen instead of crashing.
+/// 3. Load the persisted settings and the surveyed building positions.
+/// 4. Prepare the alert service (pop-ups and push).
+/// 5. Run the app with its Provider state.
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Log (instead of silently swallowing) errors that escape every handler.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Unhandled error: $error\n$stack');
+    return true;
+  };
+
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  final problem = await _startFirebase();
+  if (problem != null) {
+    runApp(SetupRequiredApp(problem: problem));
+    return;
+  }
+
+  await SettingsStore.instance.init();
+  await _loadBuildingPositions();
+  await NotificationService.instance.init(
+    navigatorKey: SmartfindApp.navigatorKey,
+  );
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthState>(create: (_) => AuthState()),
+        // The feed may only be read by signed-in users, so it follows the
+        // sign-in state of AuthState.
+        ChangeNotifierProxyProvider<AuthState, ItemsState>(
+          create: (_) => ItemsState(),
+          update: (_, auth, items) =>
+              (items ?? ItemsState())..setSignedIn(auth.isAuthenticated),
+        ),
+        ChangeNotifierProvider<SettingsStore>.value(
+          value: SettingsStore.instance,
+        ),
+      ],
+      child: const SmartfindApp(),
+    ),
+  );
 }
 
-class SmartFindApp extends StatelessWidget {
-  const SmartFindApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'smartFind',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF5A55CA),
-          primary: const Color(0xFF5A55CA),
-          surface: Colors.white,
-          background: const Color(0xFFF8F9FD),
-        ),
-        textTheme: GoogleFonts.poppinsTextTheme(),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-          iconTheme: IconThemeData(color: Colors.black),
-          titleTextStyle: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      home: const AuthGate(),
-    );
+/// Applies surveyed building positions (assets/data/building_positions.json)
+/// over the built-in coordinates. An empty or broken file changes nothing.
+Future<void> _loadBuildingPositions() async {
+  try {
+    final raw = await rootBundle.loadString('assets/data/building_positions.json');
+    final json = jsonDecode(raw);
+    if (json is Map<String, dynamic>) BuildingPositions.apply(json);
+  } catch (e) {
+    debugPrint('[buildings] could not load surveyed positions: $e');
   }
 }
 
-class AuthGate extends StatelessWidget {
-  const AuthGate({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: AppState.isAuthenticated,
-      builder: (context, isAuthenticated, _) {
-        if (!isAuthenticated) {
-          return const AuthScreen();
-        }
-        return const MainNavigationScreen();
-      },
-    );
-  }
-}
-
-class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
-
-  @override
-  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
-}
-
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
-
-  final List<Widget> _pages = const [
-    HomeScreen(),
-    MapScreen(),
-    ChatListScreen(),
-    ProfileScreen(),
+/// Starts Firebase. Returns `null` on success, otherwise a human readable
+/// description of what is missing.
+Future<String?> _startFirebase() async {
+  final options = DefaultFirebaseOptions.currentPlatform;
+  final missing = <String>[
+    if (options.apiKey.isEmpty) 'FIREBASE_API_KEY',
+    if (options.appId.isEmpty) 'FIREBASE_APP_ID_*',
+    if (options.projectId.isEmpty) 'FIREBASE_PROJECT_ID',
+    if (options.messagingSenderId.isEmpty) 'FIREBASE_MESSAGING_SENDER_ID',
   ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: _pages[_currentIndex],
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const ReportSelectionScreen(),
-            ),
-          );
-        },
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 4,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add, color: Colors.white, size: 32),
-      ),
-      bottomNavigationBar: BottomAppBar(
-        color: Colors.white,
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8.0,
-        elevation: 10,
-        child: SizedBox(
-          height: 60,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(Icons.explore, 'DISCOVER', 0),
-              _buildNavItem(Icons.map, 'MAP', 1),
-              const SizedBox(width: 48),
-              _buildNavItem(Icons.chat_bubble_outline, 'CHATS', 2),
-              _buildNavItem(Icons.person_outline, 'PROFILE', 3),
-            ],
-          ),
-        ),
-      ),
-    );
+  if (missing.isNotEmpty) {
+    return 'No Firebase settings were found (missing: ${missing.join(', ')}).';
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = _currentIndex == index;
-    return InkWell(
-      onTap: () => setState(() => _currentIndex = index),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            color: isSelected
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
+  try {
+    await Firebase.initializeApp(options: options);
+
+    if (AppConfig.useEmulator) {
+      final host = AppConfig.emulatorHost;
+      await FirebaseAuth.instance.useAuthEmulator(
+        host,
+        AppConfig.authEmulatorPort,
+      );
+      FirebaseFirestore.instance.useFirestoreEmulator(
+        host,
+        AppConfig.firestoreEmulatorPort,
+      );
+      debugPrint(
+        '[firebase] Using emulators on $host '
+        '(auth ${AppConfig.authEmulatorPort}, '
+        'firestore ${AppConfig.firestoreEmulatorPort})',
+      );
+    }
+    return null;
+  } catch (e, st) {
+    debugPrint('[firebase] initialization failed: $e\n$st');
+    return 'Firebase could not be started: $e';
   }
 }
